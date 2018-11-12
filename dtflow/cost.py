@@ -4,10 +4,9 @@ from . import Operation, Tensor
 
 
 class CrossEntropy(Operation):
-    def __init__(self):
-        """
-        the cross entropy cost function
-        """
+    """
+    the cross entropy cost function
+    """
 
     def __call__(self, h, y, eps):
         """
@@ -20,8 +19,13 @@ class CrossEntropy(Operation):
 
         :type y: np.ndarray
         :desc y: actual classes [m x k]
+
+        :type eps: float
+        :desc eps: make all values in h between (eps, 1-eps)
+                   so we dont get any divide by 0 errors
         """
         self.__previous = getattr(h, 'previous', None)
+
         h = np.clip(h, eps, 1 - eps)
         self.__input = y, h
 
@@ -31,15 +35,14 @@ class CrossEntropy(Operation):
 
     def backprop(self, sigma, optim):
         """
-        calculates the derivative of
-        cross entropy which is:
-        -y / h + (1 - y) / (1 - h)
+        the cross entropy function is:
+            y * np.log(h) + (1 - y) * np.log(1 - h)
 
-        :type sigma: np.ndarray
-        :desc sigma: the backpropagated error
+        after some math, the derivative
+        with respect to h is:
+            (1 - y) / (1 - h) - y / h
 
-        :type optim: Optimizer
-        :desc optim: the optimizer for updating
+        and we multiply this by the backpropagated error
         """
         if self.__previous:
             y, h = self.__input
@@ -49,4 +52,9 @@ class CrossEntropy(Operation):
 
 
 def cross_entropy(h, y, eps=1e-9):
+    """
+    a helper function for creating a
+    cross entropy cost so that it
+    looks nicer when we call it later
+    """
     return CrossEntropy()(h, y, eps)

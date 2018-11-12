@@ -20,13 +20,12 @@ class Tensor(np.ndarray):
 
 
 class Operation(metaclass=abc.ABCMeta):
-    def __init__(self):
-        """
-        the operation class defines a wrapper
-        around commonly used operations in
-        machine learning (i.e. addition,
-        convolution, cost functions, etc.)
-        """
+    """
+    the operation class defines a wrapper
+    around commonly used operations in
+    machine learning (i.e. addition,
+    convolution, cost functions, etc.)
+    """
 
     @abc.abstractmethod
     def __call__(self):

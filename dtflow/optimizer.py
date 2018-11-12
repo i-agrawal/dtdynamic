@@ -2,8 +2,6 @@ import abc
 
 import numpy as np
 
-from . import Tensor, Operation
-
 
 class Optimizer(metaclass=abc.ABCMeta):
     def __init__(self):
@@ -12,8 +10,9 @@ class Optimizer(metaclass=abc.ABCMeta):
         around any optimizer usually involving
         variants of gradient descent
         """
+        self.report = False
 
-    def step(self, outputted):
+    def step(self, outputted, report=False):
         """
         given the output of a network start
         a backpropagation to update weights
@@ -21,9 +20,15 @@ class Optimizer(metaclass=abc.ABCMeta):
 
         :type outputted: np.ndarray
         :desc outputted: the output to backprop from
+
+        :type report: bool
+        :desc report: whether to output weight change
         """
+        self.report = report
+        self.change = 0
         if getattr(outputted, 'previous', None):
             outputted.previous.backprop(1, self)
+        return self.change
 
     @abc.abstractmethod
     def update(self, operation, sigma):
@@ -62,42 +67,56 @@ class GradientDescent(Optimizer):
         :type nesterov: float
         :desc nesterov: previous weight update worth
         """
+        super().__init__()
         self.eta = eta
         self.l1 = l1
         self.l2 = l2
         self.momentum = momentum
         self.nesterov = nesterov
-        self.prev = {}
 
-    def modify_grads(self, orig, grad, apply_reg):
+    def modify_grads(self, layer, gradw, gradb, samples):
         """
         helper function for all gradient descents
         to apply regularization, momentum, and
         nesterov accelerate gradient
 
-        :type orig: np.ndarray
-        :desc orig: original weights
+        :type layer: Layer
+        :desc layer: the layer we are applying this to
 
-        :type grad: np.ndarray
-        :desc grad: the weight gradient
+        :type gradw: np.ndarray
+        :desc gradw: the weight gradient
 
-        :type apply_reg: bool
-        :desc apply_reg: whether to regularize these
+        :type gradb: np.ndarray
+        :desc gradb: the bias gradient
+
+        :type samples: int
+        :desc samples: the number of samples
+                       used for the gradient
         """
-        if apply_reg and self.l1:
-            grad += self.l1 * np.sign(orig)
-        if apply_reg and self.l2:
-            grad += self.l2 * orig
+        if self.l1:
+            gradw += self.l1 * np.sign(layer.w)
+        if self.l2:
+            gradw += self.l2 * layer.w
+
+        eta = self.eta / samples
         if self.momentum:
-            key, _ = orig.__array_interface__['data']
-            prev = self.momentum * self.prev.get(key, 0)
+            prevw = self.momentum * layer.prevw
+            prevb = self.momentum * layer.prevb
             if self.nesterov:
-                grad -= prev
-            grad = prev + self.eta * grad
-            self.prev[key] = grad
+                gradw -= prevw
+                gradb -= prevb
+            gradw = prevw + eta * gradw
+            gradb = prevb + eta * gradb
+            layer.prevw = gradw
+            layer.prevb = gradb
         else:
-            grad = self.eta * grad
-        return grad
+            gradw = eta * gradw
+            gradb = eta * gradb
+
+        if self.report:
+            self.change += np.sum(gradw**2)
+            self.change += np.sum(gradb**2)
+        return gradw, gradb
 
 
 class BatchGD(GradientDescent):
@@ -109,19 +128,15 @@ class BatchGD(GradientDescent):
 
     def update(self, layer, sigma):
         """
-        given and layer and the current
-        sigma update the weights in the
-        layer
-
-        :type layer: Layer
-        :desc layer: the layer with weights
-
-        :type sigma: np.ndarray
-        :desc sigma: the current sigma
+        find the gradients over the entire
+        batch and then average it over the
+        the number of examples
         """
         gradw, gradb = layer.gradients(sigma, np.arange(len(sigma)))
-        layer.w -= self.modify_grads(layer.w, gradw, True) / len(sigma)
-        layer.b -= self.modify_grads(layer.b, gradb, False) / len(sigma)
+        gradw, gradb = self.modify_grads(layer, gradw, gradb, len(sigma))
+
+        layer.w -= gradw
+        layer.b -= gradb
 
 
 class StochasticGD(GradientDescent):
@@ -133,22 +148,18 @@ class StochasticGD(GradientDescent):
 
     def update(self, layer, sigma):
         """
-        given and layer and the current
-        sigma update the weights in the
-        layer
-
-        :type layer: Layer
-        :desc layer: the layer with weights
-
-        :type sigma: np.ndarray
-        :desc sigma: the current sigma
+        find the gradients over an example
+        in the batch and then apply it and
+        repeat for all examples in the batch
         """
         indices = np.arange(len(sigma))
         np.random.shuffle(indices)
         for ind in indices:
             gradw, gradb = layer.gradients(sigma, [ind])
-            layer.w -= self.modify_grads(layer.w, gradw, True)
-            layer.b -= self.modify_grads(layer.b, gradb, False)
+            gradw, gradb = self.modify_grads(layer, gradw, gradb, 1)
+
+            layer.w -= gradw
+            layer.b -= gradb
 
 
 class MiniBatchGD(GradientDescent):
@@ -166,15 +177,9 @@ class MiniBatchGD(GradientDescent):
 
     def update(self, layer, sigma):
         """
-        given and layer and the current
-        sigma update the weights in the
-        layer
-
-        :type layer: Layer
-        :desc layer: the layer with weights
-
-        :type sigma: np.ndarray
-        :desc sigma: the current sigma
+        find the gradients over a small subset
+        of examples in the batch and then apply
+        it and repeat for all subsets in the batch
         """
         n = len(sigma)
         indices = np.arange(n)
@@ -182,5 +187,7 @@ class MiniBatchGD(GradientDescent):
         for i in range(0, n, self.batch):
             inds = indices[i:min(i + self.batch, n)]
             gradw, gradb = layer.gradients(sigma, inds)
-            layer.w -= self.modify_grads(layer.w, gradw, True) / len(inds)
-            layer.b -= self.modify_grads(layer.b, gradb, False) / len(inds)
+            gradw, gradb = self.modify_grads(layer, gradw, gradb, len(inds))
+
+            layer.w -= gradw
+            layer.b -= gradb

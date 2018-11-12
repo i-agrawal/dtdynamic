@@ -11,14 +11,30 @@ class Layer(Operation, metaclass=abc.ABCMeta):
         the layer class defines a wrapper
         around network layers who have
         weights that need to update
+
+        :type prevw: np.ndarray
+        :desc prevw: the previous gradient of w
+                     held for the optimizer
+
+        :type prevb: np.ndarray
+        :desc prevb: the previous gradient of b
+                     held for the optimizer
         """
+        self.prevw = 0
+        self.prevb = 0
 
     @abc.abstractmethod
     def gradients(self, sigma, indices):
         """
-        calculates the gradients for any
-        value that needs to be updated
-        and returns them
+        calculates the gradients for
+        the weights and the bias and
+        then returns them
+
+        :type sigma: np.ndarray
+        :desc sigma: the backpropagated error
+
+        :type indices: List[int]
+        :desc indices: the samples to use
         """
 
 
@@ -35,6 +51,7 @@ class Linear(Layer):
         :type k: int
         :desc k: the number of output features
         """
+        super().__init__()
         self.w = np.random.randn(n, k)
         self.b = np.random.randn(1, k)
 
@@ -54,24 +71,28 @@ class Linear(Layer):
 
     def gradients(self, sigma, indices):
         """
-        finds the gradient with respect
-        to w, b and returns them
+        the fully connected layer is simply:
+            x * w + b
+        so the derivative with respect to w is:
+            x
+        the derivative with respect to b is:
+            1
+        and we multiply these by the backpropagated error
         """
-        gradw = np.dot(self.__input[indices].T, sigma[indices])
-        gradb = np.sum(sigma[indices], axis=0)
+        input_ = self.__input[indices]
+        error = sigma[indices]
+
+        gradw = np.dot(input_.T, error)
+        gradb = np.sum(error, axis=0)
         return gradw, gradb
 
     def backprop(self, sigma, optim):
         """
-        further backprops the sigma and
-        then updates the weights using the
-        optimizer
-
-        :type sigma: np.ndarray
-        :desc sigma: the backpropagated error
-
-        :type optim: Optimizer
-        :desc optim: the optimizer for updating
+        the fully connected layer is simply:
+            x * w + b
+        so the derivative with respect to x is:
+            w
+        and we multiply this by the backpropagated error
         """
         if self.__previous:
             next_sigma = np.dot(sigma, self.w.T)
